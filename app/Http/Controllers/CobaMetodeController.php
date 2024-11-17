@@ -5,14 +5,19 @@ namespace App\Http\Controllers;
 use App\Models\Asisten;
 use App\Models\Kelasprak;
 use App\Models\Ketersediaan;
+use App\Models\Konfigurasi;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
 class CobaMetodeController extends Controller
 {
-    private $populationSize = 5; //Ukuran populasi
-    private $generations = 2; //Jumlah generasi
-    private $mutationRate = 0.001; //Tingkat mutasi
+    // private $populationSize = 5; //Ukuran populasi
+    // private $generations = 2; //Jumlah generasi
+    // private $mutationRate = 0.001; //Tingkat mutasi
+    private $populationSize;
+    private $generations;
+    private $crossoverRate;
+    private $mutationRate;
 
     // public function scheduleAssistants()
     // {
@@ -92,7 +97,85 @@ class CobaMetodeController extends Controller
     //         // 'populationAfterMutation' => $populationAfterMutation,
     //     ]);
     // }
-   
+    public function jadwalAsisten()
+    {
+        // Ambil semua asisten dan kelas
+        $assistants = Asisten::all();
+        $classSchedules = Kelasprak::all();
+        $availabilities = Ketersediaan::with('asisten', 'kelasprak')->get();
+
+        // Inisialisasi populasi
+        $population = $this->initializePopulation($assistants, $classSchedules);
+        $initialPopulation = $population; // Simpan hasil inisialisasi
+
+        // Array untuk menyimpan data setiap generasi
+        $generationsData = [];
+
+        // Jalankan algoritma genetika
+        for ($i = 0; $i < $this->generations; $i++) {
+            // Fitness
+            $fitness = $this->calculateFitness($population, $availabilities);
+
+            // Seleksi
+            $selection = $this->selection($population, $fitness);
+
+            // Crossover
+            $crossoverPopulation = $this->crossover($selection['selected']);
+
+            // Mutasi
+            $mutatedPopulation = $this->mutation($crossoverPopulation);
+
+            // Simpan data proses generasi saat ini
+            $generationsData[] = [
+                'generation' => $i + 1,
+                'fitness' => $fitness,
+                'selected_population' => $selection['selected'],
+                'random_selection' => $selection['randomSel'],
+                'selection_probabilities' => $selection['selectionProbabilities'],
+                'cumulative_probabilities' => $selection['cumulativeProbabilities'],
+                'crossover_population' => $crossoverPopulation,
+                'mutated_population' => $mutatedPopulation,
+            ];
+
+            // Update populasi
+            $population = $mutatedPopulation;
+        }
+
+        // Ambil individu terbaik setelah seluruh generasi
+        $bestSchedule = $this->getBestIndividual($population, $availabilities);
+        $bestFitness = $this->calculateFitness([$bestSchedule], $availabilities)[0];
+
+        // dd([
+        //     'schedule' => $bestSchedule,
+        //     'assistants' => $assistants,
+        //     'classSchedules' => $classSchedules,
+        //     'fitness' => $bestFitness,
+        //     'initialPopulation' => $initialPopulation,
+        //     'generationsData' => $generationsData,
+        // ]);
+
+        // Tampilkan hasil di view
+        return view('jadwal', [
+            'schedule' => $bestSchedule,
+            'assistants' => $assistants,
+            'classSchedules' => $classSchedules,
+            'fitness' => $bestFitness,
+            'initialPopulation' => $initialPopulation,
+            'generationsData' => $generationsData, // Data semua generasi
+        ]);
+    }
+
+    public function __construct()
+    {
+        // Ambil data konfigurasi pertama (pastikan hanya satu baris di tabel konfigurasi)
+        $config = Konfigurasi::first();
+
+        // Inisialisasi nilai properti dari data tabel
+        $this->populationSize = $config->popsize;
+        $this->generations = $config->generasi;
+        $this->crossoverRate = $config->crossrate;
+        $this->mutationRate = $config->mutrate;
+    }
 
     public function scheduleAssistants()
     {
@@ -105,26 +188,35 @@ class CobaMetodeController extends Controller
         $population = $this->initializePopulation($assistants, $classSchedules);
         $initialPopulation = $population; // Simpan hasil inisialisasi
 
+        // Array untuk menyimpan data iterasi
+        $iterations = [];
+
         // Jalankan algoritma genetika
         for ($i = 0; $i < $this->generations; $i++) {
             // Fitness
             $fitness = $this->calculateFitness($population, $availabilities);
-            Log::debug("Generation " . ($i + 1) . " - Fitness:", $fitness);
 
             // Seleksi
-            $population = $this->selection($population, $fitness);
-            Log::debug("Generation " . ($i + 1) . " - Selected Population:", $population['selected']);
-            Log::debug("Generation " . ($i + 1) . " - Random Selection:", $population['randomSel']);
-            Log::debug("Generation " . ($i + 1) . " - Probabilitas:", $population['selectionProbabilities']);
-            Log::debug("Generation " . ($i + 1) . " - Kumulatif:", $population['cumulativeProbabilities']);
+            $selectPopulation = $this->selection($population, $fitness);
 
             // Crossover
-            $population = $this->crossover($population);
-            Log::debug("Generation " . ($i + 1) . " - Crossover Population:", $population);
+            $crossPopulation = $this->crossover($selectPopulation);
 
             // Mutasi
-            $population = $this->mutation($population);
-            Log::debug("Generation " . ($i + 1) . " - Mutated Population:", $population);
+            $mutPopulation = $this->mutation($crossPopulation);
+
+            // dd($population);
+            $population = $mutPopulation;
+
+            // Simpan data iterasi
+            $iterations[] = [
+                'generation' => $i + 1,
+                'initialPopulation' => $population, // Tetap sebagai array
+                'fitness' => $fitness,              // Tetap sebagai array
+                'selectPopulation' => $selectPopulation, // Tetap sebagai array
+                'crossPopulation' => $crossPopulation,   // Tetap sebagai array
+                'mutPopulation' => $mutPopulation,       // Tetap sebagai array
+            ];
         }
 
         // Ambil individu terbaik
@@ -133,7 +225,8 @@ class CobaMetodeController extends Controller
         $bestFitness = $this->calculateFitness([$bestSchedule], $availabilities)[0];
 
         Log::debug("Best Schedule: ", $bestSchedule);
-        // Log::debug("Best Fitness: ", $bestFitness);
+
+        dd($iterations);
 
         // Tampilkan hasil di view
         return view('coba', [
@@ -142,10 +235,9 @@ class CobaMetodeController extends Controller
             'classSchedules' => $classSchedules,
             'fitness' => $bestFitness,
             'initialPopulation' => $initialPopulation,
+            'iterations' => $iterations
         ]);
     }
-
-
 
     private function initializePopulation($assistants, $classSchedules)
     {
@@ -378,7 +470,7 @@ class CobaMetodeController extends Controller
     //     return $newPopulation;
     // }
 
-    private $crossoverRate = 0.5;
+    // private $crossoverRate = 0.5;
     public function crossover($population)
     {
         $newPopulation = [];
@@ -435,9 +527,50 @@ class CobaMetodeController extends Controller
     }
 
 
+    // public function crossover($selectedPopulation)
+    // {
+    //     $newPopulation = [];
 
+    //     // Loop untuk setiap pasangan individu
+    //     for ($i = 0; $i < count($selectedPopulation); $i += 2) {
+    //         // Cek jika pasangan individu ada (jika ganjil, individu terakhir tidak memiliki pasangan)
+    //         if (isset($selectedPopulation[$i + 1])) {
+    //             $parent1 = $selectedPopulation[$i];
+    //             $parent2 = $selectedPopulation[$i + 1];
 
+    //             // Tentukan titik crossover
+    //             $crossPoint = rand(1, count($parent1) - 1);
 
+    //             $child1 = [];
+    //             $child2 = [];
+
+    //             foreach ($parent1 as $meetingId => $roles) {
+    //                 if ($meetingId <= $crossPoint) {
+    //                     $child1[$meetingId] = $parent1[$meetingId];
+    //                     $child2[$meetingId] = $parent2[$meetingId];
+    //                 } else {
+    //                     $child1[$meetingId] = $parent2[$meetingId];
+    //                     $child2[$meetingId] = $parent1[$meetingId];
+    //                 }
+
+    //                 // Pastikan setiap `child` tetap mempertahankan hari dan sesi
+    //                 $child1[$meetingId]['hari'] = $parent1[$meetingId]['hari'];
+    //                 $child1[$meetingId]['sesi'] = $parent1[$meetingId]['sesi'];
+    //                 $child2[$meetingId]['hari'] = $parent2[$meetingId]['hari'];
+    //                 $child2[$meetingId]['sesi'] = $parent2[$meetingId]['sesi'];
+    //             }
+
+    //             // Simpan hasil crossover
+    //             $newPopulation[] = $child1;
+    //             $newPopulation[] = $child2;
+    //         } else {
+    //             // Jika hanya ada satu individu yang tersisa, tambahkan ke populasi baru tanpa perubahan
+    //             $newPopulation[] = $selectedPopulation[$i];
+    //         }
+    //     }
+
+    //     return $newPopulation;
+    // }
 
 
     private function mutation($population)
@@ -463,7 +596,6 @@ class CobaMetodeController extends Controller
                 }
             }
         }
-
         return $population;
     }
 

@@ -71,3 +71,4 @@ Route::post('/konfigurasi', [KonfigurasiController::class, 'store'])->name('konf
 
 // Route::match(['get', 'post'], '/coba', [CobaMetodeController::class, 'index'])->name('generate.new.solusi');
 Route::get('/coba', [CobaMetodeController::class, 'scheduleAssistants']);
+Route::get('/jadwal', [CobaMetodeController::class, 'jadwalAsisten']);
